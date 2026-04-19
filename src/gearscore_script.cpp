@@ -314,7 +314,7 @@ public:
     }
 };
 
-void AddGearScoreScripts()
+void Addmod_gearscoreScripts()
 {
     new GearScorePlayerScript();
     new gearscore_commandscript();
