@@ -1,0 +1,30 @@
+#
+# Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license: https://github.com/azerothcore/azerothcore-wotlk/blob/master/LICENSE-AGPL3
+#
+
+[worldserver]
+
+########################################
+# GearScore Module Configuration
+########################################
+#
+#    GearScore.Enable
+#        Description: Enable or disable the GearScore module.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+GearScore.Enable = 1
+
+#    GearScore.IgnoreBots
+#        Description: If enabled, it will not calculate or save GearScore for bots.
+#        Default:     1 - (Ignore bots)
+#                     0 - (Save for bots too)
+
+GearScore.IgnoreBots = 1
+
+#    GearScore.ExportCSV
+#        Description: Enable or disable exporting GearScore data to a CSV file.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+
+GearScore.ExportCSV = 0

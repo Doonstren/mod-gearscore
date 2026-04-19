@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS `character_gearscore` (
+  `guid` INT UNSIGNED NOT NULL COMMENT 'Global Unique Identifier',
+  `name` VARCHAR(12) NOT NULL DEFAULT '',
+  `class` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `gearscore` INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`guid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
