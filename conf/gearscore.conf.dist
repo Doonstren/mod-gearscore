@@ -16,11 +16,22 @@
 GearScore.Enable = 1
 
 #    GearScore.IgnoreBots
-#        Description: If enabled, it will not calculate or save GearScore for bots.
-#        Default:     1 - (Ignore bots)
-#                     0 - (Save for bots too)
+#        Description: Controls GearScore calculation for bots.
+#                     Values 1 and 2 require mod-playerbots to distinguish bot types;
+#                     without it, any non-zero value is treated as "ignore all bots".
+#        Default:     0 - (Calculate GS for all, including bots)
+#                     1 - (Ignore all bots: random bots AND playerbots)
+#                     2 - (Ignore only random bots; playerbots are calculated)
 
-GearScore.IgnoreBots = 1
+GearScore.IgnoreBots = 2
+
+#    GearScore.InspectMessage
+#        Description: When enabled, whisper the target's GearScore to the inspector
+#                     every time they right-click Inspect someone.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+GearScore.InspectMessage = 1
 
 #    GearScore.ExportCSV
 #        Description: Enable or disable exporting GearScore data to a CSV file.

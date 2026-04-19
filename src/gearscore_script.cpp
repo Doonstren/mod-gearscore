@@ -8,6 +8,36 @@
 #include "Log.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "ObjectAccessor.h"
+#include "Opcodes.h"
+#include "WorldPacket.h"
+#include "CharacterCache.h"
+#ifdef MOD_PLAYERBOTS
+#include "RandomPlayerbotMgr.h"
+#endif
+
+// GearScore.IgnoreBots:
+//   0 - calculate GS for everyone
+//   1 - ignore all bots (random + playerbots)
+//   2 - ignore only random bots (playerbots still calculated)
+//       Requires mod-playerbots; without it, mode 2 behaves like mode 1.
+static bool ShouldIgnoreBot(Player* player)
+{
+    if (!player->GetSession() || !player->GetSession()->IsBot())
+        return false;
+
+    uint32 mode = sConfigMgr->GetOption<uint32>("GearScore.IgnoreBots", 2);
+    if (mode == 0)
+        return false;
+    if (mode == 1)
+        return true;
+
+#ifdef MOD_PLAYERBOTS
+    return sRandomPlayerbotMgr.IsRandomBot(player);
+#else
+    return true;
+#endif
+}
 
 // Static Helper Functions
 static float GetSlotModifier(uint32 equipLoc)
@@ -162,7 +192,7 @@ static void UpdateAndSaveGearScore(Player* player)
     if (!sConfigMgr->GetOption<bool>("GearScore.Enable", true))
         return;
 
-    if (sConfigMgr->GetOption<bool>("GearScore.IgnoreBots", true) && player->GetSession()->IsBot())
+    if (ShouldIgnoreBot(player))
         return;
 
     uint32 gs = CalculateGearScore(player);
@@ -189,6 +219,53 @@ public:
     void OnPlayerUnequip(Player* player, Item* /*it*/) override
     {
         UpdateAndSaveGearScore(player);
+    }
+};
+
+// Intercept CMSG_INSPECT so we can whisper the target's GearScore to the
+// inspector. No hook exists in core for inspect, but OnPacketReceived runs
+// before the actual opcode handler.
+class GearScoreServerScript : public ServerScript
+{
+public:
+    GearScoreServerScript() : ServerScript("GearScoreServerScript") { }
+
+    void OnPacketReceived(WorldSession* session, WorldPacket const& packet) override
+    {
+        if (packet.GetOpcode() != CMSG_INSPECT)
+            return;
+
+        if (!sConfigMgr->GetOption<bool>("GearScore.Enable", true))
+            return;
+        if (!sConfigMgr->GetOption<bool>("GearScore.InspectMessage", true))
+            return;
+
+        if (!session)
+            return;
+        Player* inspector = session->GetPlayer();
+        if (!inspector)
+            return;
+
+        WorldPacket copy(packet);
+        ObjectGuid targetGuid;
+        copy >> targetGuid;
+
+        Player* target = ObjectAccessor::GetPlayer(*inspector, targetGuid);
+        if (!target || target == inspector)
+            return;
+
+        if (ShouldIgnoreBot(target))
+            return;
+
+        uint32 gs = CalculateGearScore(target);
+
+        uint32 locale = session->GetSessionDbLocaleIndex();
+        bool isRu = (locale == LOCALE_ruRU);
+
+        ChatHandler(session).PSendSysMessage(
+            isRu ? "GearScore игрока {}: |cff00ffff{}|r"
+                 : "GearScore of {}: |cff00ffff{}|r",
+            target->GetName(), gs);
     }
 };
 
@@ -228,6 +305,7 @@ public:
                 handler->PSendSysMessage("Использование команды .gs:");
                 handler->PSendSysMessage("  .gs - показать свой GearScore или GearScore выбранной цели.");
                 handler->PSendSysMessage("  .gs [ИмяИгрока] - показать GearScore указанного игрока (даже если он оффлайн).");
+                handler->PSendSysMessage("  .gs all [страница] - показать таблицу лидеров по GearScore.");
                 handler->PSendSysMessage("  .gs help - показать эту справку.");
             }
             else
@@ -235,7 +313,84 @@ public:
                 handler->PSendSysMessage("Usage of .gs command:");
                 handler->PSendSysMessage("  .gs - show your own GearScore or the GearScore of the selected target.");
                 handler->PSendSysMessage("  .gs [PlayerName] - show the GearScore of the specified player (even if offline).");
+                handler->PSendSysMessage("  .gs all [page] - show the GearScore leaderboard.");
                 handler->PSendSysMessage("  .gs help - show this help message.");
+            }
+            return true;
+        }
+
+        // Leaderboard: .gs all [page]
+        if (args && (strncmp(args, "all", 3) == 0) && (args[3] == '\0' || args[3] == ' '))
+        {
+            static constexpr uint32 PAGE_SIZE = 20;
+            uint32 page = 1;
+            if (args[3] == ' ')
+            {
+                int parsed = atoi(args + 4);
+                if (parsed > 0)
+                    page = uint32(parsed);
+            }
+            uint32 offset = (page - 1) * PAGE_SIZE;
+
+            QueryResult countResult = CharacterDatabase.Query("SELECT COUNT(*) FROM character_gearscore");
+            uint32 total = countResult ? (*countResult)[0].Get<uint32>() : 0;
+            if (total == 0)
+            {
+                handler->PSendSysMessage(isRu ? "В базе нет сохранённых GearScore." : "No GearScore entries saved yet.");
+                return true;
+            }
+
+            uint32 totalPages = (total + PAGE_SIZE - 1) / PAGE_SIZE;
+            if (page > totalPages)
+            {
+                handler->PSendSysMessage(isRu ? "Страница {} не существует (всего страниц: {})." : "Page {} does not exist (total pages: {}).", page, totalPages);
+                return true;
+            }
+
+            QueryResult rows = CharacterDatabase.Query(
+                "SELECT name, class, gearscore FROM character_gearscore ORDER BY gearscore DESC LIMIT {}, {}",
+                offset, PAGE_SIZE);
+
+            handler->PSendSysMessage(
+                isRu ? "|cff00ffffТаблица лидеров GearScore|r — страница {}/{} (всего: {})"
+                     : "|cff00ffffGearScore leaderboard|r — page {}/{} (total: {})",
+                page, totalPages, total);
+
+            uint32 rank = offset;
+            if (rows)
+            {
+                do
+                {
+                    ++rank;
+                    Field* f = rows->Fetch();
+                    std::string name = f[0].Get<std::string>();
+                    uint8 cls = f[1].Get<uint8>();
+                    uint32 gs = f[2].Get<uint32>();
+
+                    char const* classColor = "ffffffff";
+                    switch (cls)
+                    {
+                        case CLASS_WARRIOR:      classColor = "ffc79c6e"; break;
+                        case CLASS_PALADIN:      classColor = "fff58cba"; break;
+                        case CLASS_HUNTER:       classColor = "ffabd473"; break;
+                        case CLASS_ROGUE:        classColor = "fffff569"; break;
+                        case CLASS_PRIEST:       classColor = "ffffffff"; break;
+                        case CLASS_DEATH_KNIGHT: classColor = "ffc41f3b"; break;
+                        case CLASS_SHAMAN:       classColor = "ff0070de"; break;
+                        case CLASS_MAGE:         classColor = "ff69ccf0"; break;
+                        case CLASS_WARLOCK:      classColor = "ff9482c9"; break;
+                        case CLASS_DRUID:        classColor = "ffff7d0a"; break;
+                    }
+
+                    handler->PSendSysMessage("  {}. |c{}{}|r — |cff00ffff{}|r", rank, classColor, name, gs);
+                } while (rows->NextRow());
+            }
+
+            if (page < totalPages)
+            {
+                handler->PSendSysMessage(
+                    isRu ? "Следующая страница: .gs all {}" : "Next page: .gs all {}",
+                    page + 1);
             }
             return true;
         }
@@ -285,9 +440,9 @@ public:
             targetName = targetPlayer->GetName();
             targetGuid = targetPlayer->GetGUID();
 
-            if (targetPlayer->GetSession() && targetPlayer->GetSession()->IsBot() && sConfigMgr->GetOption<bool>("GearScore.IgnoreBots", true))
+            if (ShouldIgnoreBot(targetPlayer))
             {
-                handler->PSendSysMessage(isRu ? "Выбранная цель - бот. Расчет GS для ботов отключен." : "The selected target is a bot. GS calculation for bots is disabled.");
+                handler->PSendSysMessage(isRu ? "Выбранная цель - рандомбот. Расчет GS для рандомботов отключен." : "The selected target is a random bot. GS calculation for random bots is disabled.");
                 return true;
             }
 
@@ -317,5 +472,6 @@ public:
 void Addmod_gearscoreScripts()
 {
     new GearScorePlayerScript();
+    new GearScoreServerScript();
     new gearscore_commandscript();
 }
