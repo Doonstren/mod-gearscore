@@ -399,24 +399,21 @@ public:
         std::string targetName = "";
         ObjectGuid targetGuid = ObjectGuid::Empty;
 
-        // No arguments passed, check selected target or self
-        if (!args || *args == '\0')
+    // No arguments passed, check selected target or self
+    if (!args || *args == '\0')
+    {
+        Unit* targetUnit = handler->getSelectedUnit();
+        if (targetUnit)
         {
-            Unit* targetUnit = handler->getSelectedUnit();
-            if (targetUnit)
-            {
-                targetPlayer = targetUnit->ToPlayer();
-                if (!targetPlayer)
-                {
-                    handler->PSendSysMessage(isRu ? "Вы выбрали не игрока." : "You have selected an NPC, not a player.");
-                    return true; // We don't return false to avoid syntax error popups
-                }
-            }
-            else
-            {
-                targetPlayer = handler->GetSession()->GetPlayer();
-            }
+            targetPlayer = targetUnit->ToPlayer();
+            // If NPC is selected, show player's own GearScore instead
         }
+
+        if (!targetPlayer)
+        {
+            targetPlayer = handler->GetSession()->GetPlayer();
+        }
+    }
         else
         {
             // Argument passed, find player by name

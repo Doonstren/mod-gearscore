@@ -11,7 +11,7 @@ An AzerothCore module to calculate and store players' GearScore in the character
 - Configurable settings via `gearscore.conf`.
 
 ## In-Game Commands
-- `.gs` - Shows your own GearScore or the GS of your currently selected target. Will show an error if an NPC or a Bot is selected (if bots are disabled).
+- `.gs` - Shows your own GearScore or the GS of your currently selected target (if a player is selected). If an NPC is selected, shows your own GearScore.
 - `.gs [PlayerName]` - Shows the GearScore of the specified player (pulls from database if offline).
 - `.gs help` - Shows the command help message.
 
